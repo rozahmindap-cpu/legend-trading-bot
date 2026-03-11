@@ -1,6 +1,7 @@
 import requests
 from config import CONFIG
 
+
 class TelegramManager:
     """Manage Telegram notifications"""
 
@@ -10,7 +11,7 @@ class TelegramManager:
         self.base_url = f"https://api.telegram.org/bot{self.token}"
 
     def send_message(self, message):
-        """Kirim pesan ke Telegram"""
+        """Kirim pesan teks ke Telegram"""
         try:
             requests.post(
                 f"{self.base_url}/sendMessage",
@@ -25,8 +26,20 @@ class TelegramManager:
         except Exception as e:
             print(f"Telegram error: {e}")
 
+    def send_photo(self, image_buffer, caption=""):
+        """Kirim gambar chart ke Telegram"""
+        try:
+            requests.post(
+                f"{self.base_url}/sendPhoto",
+                data={"chat_id": self.chat_id, "caption": caption, "parse_mode": "HTML"},
+                files={"photo": ("chart.png", image_buffer, "image/png")},
+                timeout=30
+            )
+        except Exception as e:
+            print(f"Telegram photo error: {e}")
+
     def format_signal(self, signal):
-        """Format signal jadi pesan Telegram"""
+        """Format signal jadi caption Telegram"""
         emoji = "🟢" if signal['direction'] == 'LONG' else "🔴"
         stars = "⭐️" * (signal['score'] // 20)
         pos = signal['position']
@@ -73,9 +86,23 @@ class TelegramManager:
         )
         return msg
 
-    def send_signal(self, signal):
-        msg = self.format_signal(signal)
-        self.send_message(msg)
+    def send_signal(self, signal, df_1h=None):
+        """Kirim signal — dengan chart kalau df tersedia"""
+        caption = self.format_signal(signal)
+
+        if df_1h is not None:
+            try:
+                from chart_generator import generate_chart
+                # Pastikan df_1h sudah ada kolom indikator
+                chart_buf = generate_chart(df_1h, signal)
+                if chart_buf:
+                    self.send_photo(chart_buf, caption=caption)
+                    return
+            except Exception as e:
+                print(f"Chart error, fallback to text: {e}")
+
+        # Fallback: kirim teks saja
+        self.send_message(caption)
 
     def send_status(self, status, signals_found=0):
         msg = self.format_status(status, signals_found)
@@ -88,6 +115,7 @@ class TelegramManager:
             f"⏱️ TF: 4H / 1H / 15m\n"
             f"🎯 Min Score: {CONFIG['MIN_CONFLUENCE_SCORE']}/100\n"
             f"💰 Risk/Trade: {CONFIG['RISK_PER_TRADE']}%\n"
+            f"📸 Chart: Enabled\n"
             f"⚙️ Mode: Signal Only\n\n"
             f"Scan every 15 minutes. Let's go! 🔥"
         )
