@@ -12,46 +12,51 @@ from telegram_bot import TelegramManager
 
 app = Flask(__name__)
 
+
 class LegendTradingBot:
     """Main Legend Trading Bot"""
 
     def __init__(self):
         print("🚀 Initializing Legend Trading Bot...")
-        self.exchange = BinanceManager()
-        self.signal_gen = SignalGenerator()
+        self.exchange    = BinanceManager()
+        self.signal_gen  = SignalGenerator()
         self.news_filter = NewsFilter()
-        self.telegram = TelegramManager()
-        self.pairs = CONFIG['PAIRS']
-        self.timeframes = CONFIG['TIMEFRAMES']
+        self.telegram    = TelegramManager()
+        self.pairs       = CONFIG['PAIRS']
+        self.timeframes  = CONFIG['TIMEFRAMES']
         self.signals_today = 0
-        self.last_status = None
+        self.last_status   = None
         print(f"✅ Bot ready! Monitoring {len(self.pairs)} pairs")
 
     def scan_pair(self, symbol):
-        """Scan satu pair"""
+        """Scan satu pair, return (signal, df_1h) atau (None, None)"""
         try:
-            df_4h  = self.exchange.fetch_ohlcv(symbol, self.timeframes['trend'], 200)
-            df_1h  = self.exchange.fetch_ohlcv(symbol, self.timeframes['tactics'], 200)
+            df_4h  = self.exchange.fetch_ohlcv(symbol, self.timeframes['trend'],     200)
+            df_1h  = self.exchange.fetch_ohlcv(symbol, self.timeframes['tactics'],   200)
             df_15m = self.exchange.fetch_ohlcv(symbol, self.timeframes['execution'], 200)
 
             if df_4h is None or df_1h is None or df_15m is None:
-                return None
+                return None, None
 
             funding = self.exchange.get_funding_rate(symbol)
             balance = self.exchange.get_balance()
 
+            # Add indicators (save 1h with indicators for chart)
+            df_1h_ind = LegendIndicators.add_all_indicators(df_1h.copy())
+
             signal = self.signal_gen.generate_signal(
                 symbol, df_4h, df_1h, df_15m, balance, funding
             )
-            return signal
+            return signal, df_1h_ind
+
         except Exception as e:
             print(f"Error scanning {symbol}: {e}")
-            return None
+            return None, None
 
     def scan_all_pairs(self):
         """Scan semua pair"""
         print(f"\n{'='*50}")
-        print(f"🔍 Scanning {len(self.pairs)} pairs at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"🔍 Scanning {len(self.pairs)} pairs — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*50}")
 
         # Check market status
@@ -76,7 +81,7 @@ class LegendTradingBot:
         signals_found = 0
         for symbol in self.pairs:
             print(f"Scanning {symbol}...")
-            signal = self.scan_pair(symbol)
+            signal, df_1h_ind = self.scan_pair(symbol)
 
             if signal:
                 if status['reduce_size']:
@@ -84,7 +89,8 @@ class LegendTradingBot:
                     signal['position']['margin'] *= 0.5
                     signal['note'] = 'SIZE_REDUCED_NEWS'
 
-                self.telegram.send_signal(signal)
+                # Kirim signal + chart
+                self.telegram.send_signal(signal, df_1h=df_1h_ind)
                 self.signals_today += 1
                 signals_found += 1
                 print(f"✅ Signal: {symbol} {signal['direction']} | Score: {signal['score']}")
@@ -101,7 +107,6 @@ class LegendTradingBot:
         print("📅 Daily stats reset")
 
     def run(self):
-        """Start bot loop"""
         self.telegram.send_startup(len(self.pairs))
         self.scan_all_pairs()
 
@@ -113,13 +118,11 @@ class LegendTradingBot:
             time.sleep(1)
 
 
-# Flask routes
 @app.route("/")
 def home():
     return "Legend Trading Bot Running! 🔥", 200
 
 
-# Start bot in background thread
 def start_bot():
     bot = LegendTradingBot()
     bot.run()
