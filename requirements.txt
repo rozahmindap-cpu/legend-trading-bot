@@ -1,0 +1,9 @@
+flask
+ccxt
+pandas
+numpy
+ta
+requests
+feedparser
+schedule
+python-dotenv
