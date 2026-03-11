@@ -7,3 +7,6 @@ requests
 feedparser
 schedule
 python-dotenv
+matplotlib
+mplfinance
+pillow
